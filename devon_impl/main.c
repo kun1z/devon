@@ -20,22 +20,32 @@ si main(si argc, s8 **argv)
     s8 const * const infile = argv[3];
     s8 const * const outfile = argv[4];
 
+    // Check mode
     if (*mode != '0' && *mode != '1')
     {
         printf("Incorrect mode seleted.\n");
         err = 1;
     }
 
+    // Check key file params
     FILE * const keyf = fopen(keyfile, "rb");
     if (keyf)
     {
-        fseeko(keyf, 0, SEEK_END);
+        if (fseeko(keyf, 0, SEEK_END))
+        {
+            printf("fseeko() failed on keyfile.\n");
+            exit(EXIT_FAILURE);
+        }
         if (ftello(keyf) != KEY_SIZE_IN_BYTES)
         {
             printf("key file size must be %u bytes large.\n", KEY_SIZE_IN_BYTES);
             err = 1;
         }
-        fclose(keyf);
+        if (fclose(keyf))
+        {
+            printf("fclose() failed on keyfile.\n");
+            exit(EXIT_FAILURE);
+        }
     }
     else
     {
@@ -43,16 +53,25 @@ si main(si argc, s8 **argv)
         err = 1;
     }
 
+    // Check infile params
     FILE * const inf = fopen(infile, "rb");
     if (inf)
     {
-        fseeko(inf, 0, SEEK_END);
+        if (fseeko(inf, 0, SEEK_END))
+        {
+            printf("fseeko() failed on infile.\n");
+            exit(EXIT_FAILURE);
+        }
         if (!ftello(inf))
         {
             printf("input file size must be at least 1 byte.\n");
             err = 1;
         }
-        fclose(inf);
+        if (fclose(inf))
+        {
+            printf("fclose() failed on infile.\n");
+            exit(EXIT_FAILURE);
+        }
     }
     else
     {
@@ -60,6 +79,7 @@ si main(si argc, s8 **argv)
         err = 1;
     }
 
+    // Check  outfile params
     FILE * const outf = fopen(outfile, "wb");
     if (outf)
     {
@@ -69,8 +89,16 @@ si main(si argc, s8 **argv)
             printf("output file could not be written.\n");
             err = 1;
         }
-        fclose(outf);
-        remove(outfile);
+        if (fclose(outf))
+        {
+            printf("fclose() failed on outfile.\n");
+            exit(EXIT_FAILURE);
+        }
+        if (remove(outfile))
+        {
+            printf("remove() failed on outfile.\n");
+            exit(EXIT_FAILURE);
+        }
     }
     else
     {
@@ -78,6 +106,7 @@ si main(si argc, s8 **argv)
         err = 1;
     }
 
+    // If anything failed from above bail out.
     if (err)
     {
         exit(EXIT_FAILURE);
@@ -114,14 +143,42 @@ si main(si argc, s8 **argv)
 //----------------------------------------------------------------------------------------------------------------------
 void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * const ofile)
 {
+    // Open input file
     FILE * const input = fopen(ifile, "rb");
-    FILE * const output = fopen(ofile, "wb");
+    if (!input)
+    {
+        printf("input file could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
 
+    // Open output file
+    FILE * const output = fopen(ofile, "wb");
+    if (!output)
+    {
+        printf("output file could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Open and load the key buffer
     u8 key_buffer[KEY_SIZE_IN_BYTES];
     FILE * const keyfile = fopen(kfile, "rb");
-    fread(key_buffer, 1, KEY_SIZE_IN_BYTES, keyfile);
-    fclose(keyfile);
+    if (!keyfile)
+    {
+        printf("keyfile could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
+    if (fread(key_buffer, 1, KEY_SIZE_IN_BYTES, keyfile) != KEY_SIZE_IN_BYTES)
+    {
+        printf("keyfile read error. Possibly incorrect size.\n");
+        exit(EXIT_FAILURE);
+    }
+    if (fclose(keyfile))
+    {
+        printf("fclose() failed on keyfile.\n");
+        exit(EXIT_FAILURE);
+    }
 
+    // Create a unique IV
     u8 iv[128];
     FILE * const ivf = fopen("/dev/urandom", "rb");
     if (ivf)
@@ -131,7 +188,11 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
             printf("An IV could not be generated.\n");
             exit(EXIT_FAILURE);
         }
-        fclose(ivf);
+        if (fclose(ivf))
+        {
+            printf("fclose() failed on iv.\n");
+            exit(EXIT_FAILURE);
+        }
     }
     else
     {
@@ -139,6 +200,7 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
+    // Set up the keys
     u8 master_key[128];
     struct devon_hash_keys * const hash_keys = malloc(sizeof(struct devon_hash_keys));
     if (!hash_keys)
@@ -146,17 +208,16 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         printf("hash_keys malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-
     memcpy(master_key, key_buffer, sizeof(master_key));
     memcpy(hash_keys, &key_buffer[sizeof(master_key)], sizeof(struct devon_hash_keys));
 
+    // Initialize the cipher state
     struct devon_cipher_state * const cipher_state = malloc(sizeof(struct devon_cipher_state));
     if (!cipher_state)
     {
         printf("cipher_state malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-
     ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys);
     if (!res)
     {
@@ -164,73 +225,146 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
-    fseeko(input, 0, SEEK_END);
-    const u64 filesize = ftello(input);
-    rewind(input);
-
-    if (filesize)
+    // Get the input file size
+    if (fseeko(input, 0, SEEK_END))
     {
-        fwrite(iv, 1, sizeof(iv), output);
+        printf("fseeko() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    const off_t temp_filesize = ftello(input);
+    if (temp_filesize <= 0)
+    {
+        printf("ftello() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    rewind(input);
+    const u64 filesize = temp_filesize;
 
-        const u64 buffer_size = min(filesize, CHUNK_SIZE);
-        u8 * const buffer = malloc(buffer_size);
-        if (!buffer)
+    // Write the IV to the start of the file
+    if (fwrite(iv, 1, sizeof(iv), output) != sizeof(iv))
+    {
+        printf("could not write the IV to file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Create a file buffer in memory that is CHUNK_SIZE (or if the file is small, large enough for the entire file)
+    const u64 buffer_size = min(filesize, CHUNK_SIZE);
+    u8 * const buffer = malloc(buffer_size);
+    if (!buffer)
+    {
+        printf("buffer malloc failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    u64 rem = filesize;
+    const u64 unpadded_blocks = filesize / 32;
+
+    // Encrypt all full (unpadded) blocks
+    for (u64 block_count,block_counter=0;block_counter<unpadded_blocks;block_counter+=block_count)
+    {
+        const u64 requested = min(CHUNK_SIZE, (unpadded_blocks - block_counter) * 32);
+        const u64 read_in = fread(buffer, 1, requested, input);
+        if (read_in & 31 || read_in != requested)
         {
-            printf("buffer malloc failed.\n");
+            printf("read_in error: %lu of %lu\n", read_in, requested);
             exit(EXIT_FAILURE);
         }
 
-        u64 rem = filesize;
-        const u64 unpadded_blocks = filesize / 32;
+        rem -= read_in;
+        block_count = read_in / 32;
 
-        for (u64 block_count,block_counter=0;block_counter<unpadded_blocks;block_counter+=block_count)
+        for (u64 i=0;i<block_count;i++)
         {
-            const u64 requested = min(CHUNK_SIZE, (unpadded_blocks - block_counter) * 32);
-            const u64 read_in = fread(buffer, 1, requested, input);
-            if (read_in & 31 || read_in != requested)
-            {
-                printf("read_in error: %lu of %lu\n", read_in, requested);
-                exit(EXIT_FAILURE);
-            }
-
-            rem -= read_in;
-            block_count = read_in / 32;
-
-            for (u64 i=0;i<block_count;i++)
-            {
-                devon_cipher_enc(cipher_state, &buffer[i * 32], &buffer[i * 32], block_counter + i);
-            }
-
-            fwrite(buffer, 1, read_in, output);
+            devon_cipher_enc(cipher_state, &buffer[i * 32], &buffer[i * 32], block_counter + i);
         }
 
-        free(buffer);
-
-        u8 final_block[32] = { 0 };
-        if (rem) fread(final_block, 1, rem, input);
-        else rem = 32;
-
-        final_block[31] = rem;
-        devon_cipher_enc(cipher_state, final_block, final_block, unpadded_blocks);
-        fwrite(final_block, 1, 32, output);
+        if (fwrite(buffer, 1, read_in, output) != read_in)
+        {
+            printf("could not write data to the outfile.\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
+    free(buffer);
+
+    // Set up the padding and encrypt the final block. There is always 1 padded block regardless
+    // of input file size.
+    u8 final_block[32] = { 0 };
+    if (rem)
+    {
+        if (fread(final_block, 1, rem, input) != rem)
+        {
+            printf("could not read data fromt the input file.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    else rem = 32;
+
+    final_block[31] = rem;
+    devon_cipher_enc(cipher_state, final_block, final_block, unpadded_blocks);
+    if (fwrite(final_block, 1, 32, output) != 32)
+    {
+        printf("could not write data to the outfile.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Free & close everything
     free(hash_keys);
     free(cipher_state);
 
-    fclose(input);
-    fclose(output);
+    if (fclose(input))
+    {
+        printf("fclose() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (fclose(output))
+    {
+        printf("fclose() failed on output file.\n");
+        exit(EXIT_FAILURE);
+    }
 }
 //----------------------------------------------------------------------------------------------------------------------
 void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * const ofile)
 {
+    // Open input file
     FILE * const input = fopen(ifile, "rb");
-    FILE * const output = fopen(ofile, "wb");
+    if (!input)
+    {
+        printf("input file could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
 
+    // Open output file
+    FILE * const output = fopen(ofile, "wb");
+    if (!output)
+    {
+        printf("output file could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Open and load the key buffer
     u8 key_buffer[KEY_SIZE_IN_BYTES];
     FILE * const keyfile = fopen(kfile, "rb");
-    fread(key_buffer, 1, KEY_SIZE_IN_BYTES, keyfile);
-    fclose(keyfile);
+    if (!keyfile)
+    {
+        printf("keyfile could not be opened.\n");
+        exit(EXIT_FAILURE);
+    }
+    if (fread(key_buffer, 1, KEY_SIZE_IN_BYTES, keyfile) != KEY_SIZE_IN_BYTES)
+    {
+        printf("keyfile read error. Possibly incorrect size.\n");
+        exit(EXIT_FAILURE);
+    }
+    if (fclose(keyfile))
+    {
+        printf("fclose() failed on keyfile.\n");
+        exit(EXIT_FAILURE);
+    }
+
+
+    // left off here:
+
 
     fseeko(input, 0, SEEK_END);
     const u64 filesize = ftello(input);
@@ -325,7 +459,11 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
 u32 tick(void)
 {
     struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (clock_gettime(CLOCK_MONOTONIC, &now))
+    {
+        printf("clock_gettime() failed.\n");
+        exit(EXIT_FAILURE);
+    }
     return (now.tv_sec * 1000) + (now.tv_nsec / 1000000);
 }
 //----------------------------------------------------------------------------------------------------------------------
