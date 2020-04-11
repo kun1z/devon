@@ -121,6 +121,48 @@ void devon_cipher_dec(struct devon_cipher_state * const cipher_state, void * con
     memcpy(out32, block32, 32);
 }
 //----------------------------------------------------------------------------------------------------------------------
+static void block_index_shuffle(u8 const * const rng_bytes64, u8 round_shuffle[3][ROUNDS])
+{
+    for (ui i=0;i<ROUNDS;i++)
+    {
+        round_shuffle[0][i] = i;
+    }
+
+    memcpy(round_shuffle[1], round_shuffle[0], ROUNDS);
+    memcpy(round_shuffle[2], round_shuffle[0], ROUNDS);
+
+    if (ROUNDS > 1)
+    {
+        u64 x, y, z;
+        memcpy(&x, &rng_bytes64[ 0], 8);
+        memcpy(&y, &rng_bytes64[24], 8);
+        memcpy(&z, &rng_bytes64[48], 8);
+
+        ui i = ROUNDS - 1;
+
+        while(1)
+        {
+            swap(round_shuffle[0][i], round_shuffle[0][x % (i + 1)]);
+            swap(round_shuffle[1][i], round_shuffle[1][y % (i + 1)]);
+            swap(round_shuffle[2][i], round_shuffle[2][z % (i + 1)]);
+
+            if (i-- == 1) return;
+
+            x ^= x << 13;
+            y ^= y << 13;
+            z ^= z << 13;
+
+            x ^= x >> 7;
+            y ^= y >> 7;
+            z ^= z >> 7;
+
+            x ^= x << 17;
+            y ^= y << 17;
+            z ^= z << 17;
+        }
+    }
+}
+//----------------------------------------------------------------------------------------------------------------------
 static void substitute(u16 block32[16], const u16 sbox[65536])
 {
     for (ui i=0;i<16;i++)
@@ -206,48 +248,6 @@ static void permutate_inv(u16 block32[16], const u8 pbox[32], void const * const
     #undef ROR128
 
     memcpy(block32, pht, 32);
-}
-//----------------------------------------------------------------------------------------------------------------------
-static void block_index_shuffle(u8 const * const rng_bytes64, u8 round_shuffle[3][ROUNDS])
-{
-    for (ui i=0;i<ROUNDS;i++)
-    {
-        round_shuffle[0][i] = i;
-    }
-
-    memcpy(round_shuffle[1], round_shuffle[0], ROUNDS);
-    memcpy(round_shuffle[2], round_shuffle[0], ROUNDS);
-
-    if (ROUNDS > 1)
-    {
-        u64 x, y, z;
-        memcpy(&x, &rng_bytes64[ 0], 8);
-        memcpy(&y, &rng_bytes64[24], 8);
-        memcpy(&z, &rng_bytes64[48], 8);
-
-        ui i = ROUNDS - 1;
-
-        while(1)
-        {
-            swap(round_shuffle[0][i], round_shuffle[0][x % (i + 1)]);
-            swap(round_shuffle[1][i], round_shuffle[1][y % (i + 1)]);
-            swap(round_shuffle[2][i], round_shuffle[2][z % (i + 1)]);
-
-            if (i-- == 1) return;
-
-            x ^= x << 13;
-            y ^= y << 13;
-            z ^= z << 13;
-
-            x ^= x >> 7;
-            y ^= y >> 7;
-            z ^= z >> 7;
-
-            x ^= x << 17;
-            y ^= y << 17;
-            z ^= z << 17;
-        }
-    }
 }
 //----------------------------------------------------------------------------------------------------------------------
 static void init_sboxes(struct devon_cipher_state * const cipher_state)

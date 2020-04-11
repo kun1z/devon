@@ -302,7 +302,7 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
 
     final_block[31] = rem;
     devon_cipher_enc(cipher_state, final_block, final_block, unpadded_blocks);
-    if (fwrite(final_block, 1, 32, output) != 32)
+    if (fwrite(final_block, 1, sizeof(final_block), output) != sizeof(final_block))
     {
         printf("could not write data to the outfile.\n");
         exit(EXIT_FAILURE);
@@ -362,14 +362,27 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
-
-    // left off here:
-
-
-    fseeko(input, 0, SEEK_END);
-    const u64 filesize = ftello(input);
+    // Get the input file size
+    if (fseeko(input, 0, SEEK_END))
+    {
+        printf("fseeko() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    const off_t temp_filesize = ftello(input);
+    if (temp_filesize <= 0)
+    {
+        printf("ftello() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
     rewind(input);
+    const u64 filesize = temp_filesize;
+    if (filesize & 31 || filesize < 160)
+    {
+        printf("input file size is invalid.\n");
+        exit(EXIT_FAILURE);
+    }
 
+    // Read in the IV from the start of the file
     u8 iv[128];
     if (fread(iv, 1, sizeof(iv), input) != sizeof(iv))
     {
@@ -377,6 +390,7 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
+    // Set up the keys
     u8 master_key[128];
     struct devon_hash_keys * const hash_keys = malloc(sizeof(struct devon_hash_keys));
     if (!hash_keys)
@@ -384,17 +398,16 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         printf("hash_keys malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-
     memcpy(master_key, key_buffer, sizeof(master_key));
     memcpy(hash_keys, &key_buffer[sizeof(master_key)], sizeof(struct devon_hash_keys));
 
+    // Initialize the cipher state
     struct devon_cipher_state * const cipher_state = malloc(sizeof(struct devon_cipher_state));
     if (!cipher_state)
     {
         printf("cipher_state malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-
     ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys);
     if (!res)
     {
@@ -402,58 +415,76 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
-    if (filesize & 31 || filesize < 160)
+    // Create a file buffer in memory that is CHUNK_SIZE (or if the file is small, large enough for the entire file)
+    const u64 buffer_size = min(filesize, CHUNK_SIZE);
+    u8 * const buffer = malloc(buffer_size);
+    if (!buffer)
     {
-        printf("input file size is invalid.\n");
+        printf("buffer malloc failed.\n");
         exit(EXIT_FAILURE);
     }
 
-    if (filesize)
+    const u64 unpadded_blocks = (filesize - 32 - 128) / 32;
+
+    // Decrypt all full (unpadded) blocks
+    for (u64 block_count,block_counter=0;block_counter<unpadded_blocks;block_counter+=block_count)
     {
-        const u64 buffer_size = min(filesize, CHUNK_SIZE);
-        u8 * const buffer = malloc(buffer_size);
-        if (!buffer)
+        const u64 requested = min(CHUNK_SIZE, (unpadded_blocks - block_counter) * 32);
+        const u64 read_in = fread(buffer, 1, requested, input);
+        if (read_in & 31 || read_in != requested)
         {
-            printf("buffer malloc failed.\n");
+            printf("read_in error: %lu of %lu\n", read_in, requested);
             exit(EXIT_FAILURE);
         }
 
-        const u64 unpadded_blocks = (filesize - 32 - 128) / 32;
+        block_count = read_in / 32;
 
-        for (u64 block_count,block_counter=0;block_counter<unpadded_blocks;block_counter+=block_count)
+        for (u64 i=0;i<block_count;i++)
         {
-            const u64 requested = min(CHUNK_SIZE, (unpadded_blocks - block_counter) * 32);
-            const u64 read_in = fread(buffer, 1, requested, input);
-            if (read_in & 31 || read_in != requested)
-            {
-                printf("read_in error: %lu of %lu\n", read_in, requested);
-                exit(EXIT_FAILURE);
-            }
-
-            block_count = read_in / 32;
-
-            for (u64 i=0;i<block_count;i++)
-            {
-                devon_cipher_dec(cipher_state, &buffer[i * 32], &buffer[i * 32], block_counter + i);
-            }
-
-            fwrite(buffer, 1, read_in, output);
+            devon_cipher_dec(cipher_state, &buffer[i * 32], &buffer[i * 32], block_counter + i);
         }
 
-        free(buffer);
-
-        u8 final_block[32] = { 0 };
-        fread(final_block, 1, 32, input);
-
-        devon_cipher_dec(cipher_state, final_block, final_block, unpadded_blocks);
-        fwrite(final_block, 1, final_block[31] & 31, output);
+        if (fwrite(buffer, 1, read_in, output) != read_in)
+        {
+            printf("could not write data to the outfile.\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
+    free(buffer);
+
+    // Read in the padding and decrypt the final block. There is always 1 padded block regardless
+    // of input file size.
+    u8 final_block[32] = { 0 };
+    if (fread(final_block, 1, sizeof(final_block), input) != sizeof(final_block))
+    {
+        printf("could not read data fromt the input file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    devon_cipher_dec(cipher_state, final_block, final_block, unpadded_blocks);
+    const ui rem = final_block[31] & 31;
+    if (fwrite(final_block, 1, rem, output) != rem)
+    {
+        printf("could not write data to the outfile.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Free & close everything
     free(hash_keys);
     free(cipher_state);
 
-    fclose(input);
-    fclose(output);
+    if (fclose(input))
+    {
+        printf("fclose() failed on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (fclose(output))
+    {
+        printf("fclose() failed on output file.\n");
+        exit(EXIT_FAILURE);
+    }
 }
 //----------------------------------------------------------------------------------------------------------------------
 u32 tick(void)
