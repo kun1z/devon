@@ -39,15 +39,7 @@ ui init_devon_cipher(struct devon_cipher_state * const cipher_state, const u8 iv
 
     init_sboxes(cipher_state);
     init_sibxes(cipher_state);
-
-    cipher_state->p = cipher_state->hash_block64[11] & 31;
-    devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, &master_key128[ 0], rng(cipher_state, 23), hash_keys);
-
     init_pboxes(cipher_state);
-
-    cipher_state->p = cipher_state->hash_block64[23] & 31;
-    devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, &master_key128[64], rng(cipher_state, 23), hash_keys);
-
     init_key_schedule (cipher_state, master_key128, iv128);
 
     devon_hash_all_4(cipher_state->cntr_block64, cipher_state->cntr_block64, cipher_state->hash_block64, rng(cipher_state, 23), hash_keys);
@@ -353,9 +345,6 @@ static void init_key_schedule(struct devon_cipher_state * const cipher_state, co
 
             memcpy(cipher_state->key_schedule[k + 8], hash_block64, 32);
         }
-
-        cipher_state->p = hash_block64[7] & 31;
-        devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, hash_block64, hash_block64[29] % 24, cipher_state->hash_keys);
     }
 
     // Mix the entire key schedule from above with XOR'd rng words 69,420 times
@@ -371,12 +360,6 @@ static void init_key_schedule(struct devon_cipher_state * const cipher_state, co
                 const u16 x_xor_y = x ^ y;
                 memcpy(&cipher_state->key_schedule[k][i * 2], &x_xor_y, 2);
             }
-        }
-
-        if (!(r & 15))
-        {
-            cipher_state->p = cipher_state->hash_block64[3] & 31;
-            devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, master_key128, rng(cipher_state, 23), cipher_state->hash_keys);
         }
     }
 }
