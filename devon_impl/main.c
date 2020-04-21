@@ -3,28 +3,61 @@
 si main(si argc, s8 **argv)
 {
     // Initialize from command line params
-    if (argc != 5)
+    if (argc != 5 && argc != 7)
     {
-        printf("\n   Usage: %s <mode> <key file (1,304 bytes)> <input> <output>\n", argv[0]);
-        printf("    Mode: 0 to encrypt, 1 to decrypt\n\n");
-        printf(" Example: To encrypt a file named input.bin type\n");
-        printf("          \"%s 0 my_key.bin input.bin output.bin\"\n\n", argv[0]);
+        printf("\n    Usage: %s <mode> <cpu bias> <memory> <key file (1,304 bytes)> <input> <output>\n\n", argv[0]);
+        printf("     Mode: 0 to encrypt, 1 to decrypt\n");
+        printf(" CPU Bias: 0.1 to 1000.0\n");
+        printf("   Memory: 20 to 64. 20 = 1MB ram, 24 = 16MB ram, 32 = 4GB ram, etc... (Power of 2)\n\n");
+        printf("  Example: To encrypt a file named input.bin using default CPU Bias and 64MB of ram type:\n\n");
+        printf("          \"%s 0 1.0 26 my_key.bin input.bin output.bin\"\n\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    // Check all 4 params
+    // Check all params
     ui err = 0;
-
     s8 const * const mode = argv[1];
-    s8 const * const keyfile = argv[2];
-    s8 const * const infile = argv[3];
-    s8 const * const outfile = argv[4];
 
     // Check mode
     if (*mode != '0' && *mode != '1')
     {
         printf("Incorrect mode seleted.\n");
         err = 1;
+    }
+
+    double cpu_bias;
+    ui mem_hard;
+    s8 * keyfile;
+    s8 * infile;
+    s8 * outfile;
+
+    if (argc == 5 && *mode == '1')
+    {
+        keyfile = argv[2];
+        infile = argv[3];
+        outfile = argv[4];
+    }
+    else
+    {
+        cpu_bias = atof(argv[2]);
+        mem_hard = atol(argv[3]);
+        keyfile = argv[4];
+        infile = argv[5];
+        outfile = argv[6];
+
+        // Check CPU Bias range
+        if (cpu_bias < 0.1 || cpu_bias > 1000)
+        {
+            printf("Incorrect CPU Bias seleted.\n");
+            err = 1;
+        }
+
+        // Check memory range
+        if (mem_hard < 20 || mem_hard > 64)
+        {
+            printf("Incorrect memory range.\n");
+            err = 1;
+        }
     }
 
     // Check key file params
@@ -119,7 +152,7 @@ si main(si argc, s8 **argv)
     {
         printf("Encrypting...\n");
         const u32 start_tick = tick();
-        encrypt_file(keyfile, infile, outfile);
+        encrypt_file(keyfile, infile, outfile, cpu_bias, mem_hard);
         time = tick() - start_tick;
     }
     else
@@ -141,7 +174,7 @@ si main(si argc, s8 **argv)
     exit(EXIT_SUCCESS);
 }
 //----------------------------------------------------------------------------------------------------------------------
-void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * const ofile)
+void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * const ofile, const double cpu_bias, const ui mem_hard)
 {
     // Open input file
     FILE * const input = fopen(ifile, "rb");
@@ -218,7 +251,7 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         printf("cipher_state malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-    ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys);
+    ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys, cpu_bias, mem_hard);
     if (!res)
     {
         printf("init_devon_cipher failed.\n");
@@ -244,6 +277,21 @@ void encrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
     if (fwrite(iv, 1, sizeof(iv), output) != sizeof(iv))
     {
         printf("could not write the IV to file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Write the CPU Bias to the start of the file
+    if (fwrite(&cpu_bias, 1, sizeof(cpu_bias), output) != sizeof(cpu_bias))
+    {
+        printf("could not write the CPU Bias to file.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Write the mem_hard to the start of the file
+    u8 temp_mh = mem_hard;
+    if (fwrite(&temp_mh, 1, sizeof(temp_mh), output) != sizeof(temp_mh))
+    {
+        printf("could not write the CPU Bias to file.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -376,7 +424,7 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
     }
     rewind(input);
     const u64 filesize = temp_filesize;
-    if (filesize & 31 || filesize < 160)
+    if ((filesize % 32) != 9 || filesize < 169)
     {
         printf("input file size is invalid.\n");
         exit(EXIT_FAILURE);
@@ -386,7 +434,37 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
     u8 iv[128];
     if (fread(iv, 1, sizeof(iv), input) != sizeof(iv))
     {
-        printf("An IV could not be generated.\n");
+        printf("An IV could not be read.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read in the CPU Bias from the start of the file
+    double cpu_bias;
+    if (fread(&cpu_bias, 1, sizeof(cpu_bias), input) != sizeof(cpu_bias))
+    {
+        printf("CPU Bias could not be read.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Check CPU Bias range
+    if (cpu_bias < 0.1 || cpu_bias > 1000)
+    {
+        printf("Incorrect CPU Bias loaded.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read in the mem_hard from the start of the file
+    u8 mem_hard;
+    if (fread(&mem_hard, 1, sizeof(mem_hard), input) != sizeof(mem_hard))
+    {
+        printf("mem_hard could not be read.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Check memory range
+    if (mem_hard < 20 || mem_hard > 64)
+    {
+        printf("Incorrect memory range loaded.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -408,7 +486,7 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         printf("cipher_state malloc failed.\n");
         exit(EXIT_FAILURE);
     }
-    ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys);
+    ui res = init_devon_cipher(cipher_state, master_key, iv, hash_keys, cpu_bias, mem_hard);
     if (!res)
     {
         printf("init_devon_cipher failed.\n");
@@ -424,7 +502,7 @@ void decrypt_file(s8 const * const kfile, s8 const * const ifile, s8 const * con
         exit(EXIT_FAILURE);
     }
 
-    const u64 unpadded_blocks = (filesize - 32 - 128) / 32;
+    const u64 unpadded_blocks = (filesize - 32 - 128 - 8 - 1) / 32;
 
     // Decrypt all full (unpadded) blocks
     for (u64 block_count,block_counter=0;block_counter<unpadded_blocks;block_counter+=block_count)

@@ -23,6 +23,7 @@ typedef __uint128_t u128; typedef __int128_t s128;
 #define COMBO0 (HASHES * (HASHES - 1))
 #define COMBO1 (COMBO0 * (COMBO0 - 1))
 #define COMBO2 (COMBO1 * (COMBO1 - 1))
+#define DEVON_HASH_COUNT COMBO2
 //----------------------------------------------------------------------------------------------------------------------
 struct devon_hash_keys
 {

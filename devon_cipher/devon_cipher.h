@@ -19,6 +19,14 @@ typedef __uint128_t u128; typedef __int128_t s128;
 #define ROUNDS 24
 #define KEY_SIZE_IN_BYTES 1304
 //----------------------------------------------------------------------------------------------------------------------
+struct devon_mem_hard
+{
+    u64 i;
+    u64 mask_index;
+    u64 mask_map;
+    u8 * map;
+    ui p;
+};
 struct devon_cipher_state
 {
     u16 sbox[ROUNDS][65536];
@@ -28,11 +36,10 @@ struct devon_cipher_state
     u8 cntr_block64[64];
     u16 hash_block64[32];
     struct devon_hash_keys const * hash_keys;
-    u64 select;
-    ui p;
+    struct devon_mem_hard mem_hard;
 };
 //----------------------------------------------------------------------------------------------------------------------
-ui init_devon_cipher(struct devon_cipher_state * const, const u8 [128], const u8 [128], struct devon_hash_keys const * const);
+ui init_devon_cipher(struct devon_cipher_state * const, const u8 [128], const u8 [128], struct devon_hash_keys const * const, const double, const ui);
 void devon_cipher_enc(struct devon_cipher_state * const, void * const, void const * const, const u128);
 void devon_cipher_dec(struct devon_cipher_state * const, void * const, void const * const, const u128);
 //----------------------------------------------------------------------------------------------------------------------

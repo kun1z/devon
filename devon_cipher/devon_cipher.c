@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 #include "devon_cipher.h"
 //----------------------------------------------------------------------------------------------------------------------
@@ -7,14 +8,15 @@
 //----------------------------------------------------------------------------------------------------------------------
 static void sbox_shuffle(struct devon_cipher_state * const, u16 [65536]);
 static void pbox_shuffle(struct devon_cipher_state * const, u8 [16]);
-static void init_key_schedule(struct devon_cipher_state * const, const u8 [128], const u8 [128]);
+static ui init_memhard(struct devon_cipher_state * const, const ui);
+static void init_key_schedule(struct devon_cipher_state * const, const u8 [128], const u8 [128], const u64);
 static void init_sboxes(struct devon_cipher_state * const);
 static void init_sibxes(struct devon_cipher_state * const);
 static void init_pboxes(struct devon_cipher_state * const);
 static void substitute(u16 [16], const u16 [65536]);
 static void permutate(u16 [16], const u8 [32], void const * const);
 static void permutate_inv(u16 [16], const u8 [32], void const * const);
-static void xor_blocks(void * const restrict, void const * const restrict);
+static void xor_blocks(void * const restrict, void const * const restrict, const ui len);
 static void block_index_shuffle(u8 const * const, u8 [3][ROUNDS]);
 static ui no_potential_valid_swaps_exist(u16 [65536], const ui);
 static void recover_sbox(struct devon_cipher_state * const, u16 [65536], const ui);
@@ -23,30 +25,30 @@ static u16 rng_word(struct devon_cipher_state * const);
 static ui sanity_check_sbox(u16 [ROUNDS][65536]);
 static ui sanity_check_pbox(u8 [ROUNDS][32]);
 //----------------------------------------------------------------------------------------------------------------------
-ui init_devon_cipher(struct devon_cipher_state * const cipher_state, const u8 iv128[128], const u8 master_key128[128], struct devon_hash_keys const * const hash_keys)
+ui init_devon_cipher(struct devon_cipher_state * const cipher_state, const u8 iv128[128], const u8 master_key128[128], struct devon_hash_keys const * const hash_keys, const double cpu_bias, const ui mem_work)
 {
-    u64 select1, select2, selectX;
-    memcpy(&select1, &master_key128[ 0], 8);
-    memcpy(&select2, &master_key128[ 8], 8);
-    memcpy(&selectX, &master_key128[16], 8);
+    u64 select1, select2;
+    memcpy(&select1, &master_key128[0], 8);
+    memcpy(&select2, &master_key128[8], 8);
 
-    cipher_state->p         = 0;
-    cipher_state->select    = selectX;
     cipher_state->hash_keys = hash_keys;
 
     devon_hash_all_4(cipher_state->cntr_block64, &master_key128[ 0], &iv128[ 0], select1 % 24, hash_keys);
     devon_hash_all_4(cipher_state->hash_block64, &master_key128[64], &iv128[64], select2 % 24, hash_keys);
 
+    const u64 cpu_work = ((1ULL << mem_work) / 16) * cpu_bias;
+
+    if (!init_memhard(cipher_state, mem_work)) return 0;
     init_sboxes(cipher_state);
     init_sibxes(cipher_state);
     init_pboxes(cipher_state);
-    init_key_schedule (cipher_state, master_key128, iv128);
+    init_key_schedule (cipher_state, master_key128, iv128, cpu_work);
 
     devon_hash_all_4(cipher_state->cntr_block64, cipher_state->cntr_block64, cipher_state->hash_block64, rng(cipher_state, 23), hash_keys);
 
+    free(cipher_state->mem_hard.map);
     memset(cipher_state->hash_block64, 0, 64);
-    cipher_state->p      = 0;
-    cipher_state->select = 0;
+    memset(&cipher_state->mem_hard, 0, sizeof(struct devon_mem_hard));
 
     if (!sanity_check_sbox(cipher_state->sbox)) return 0;
     if (!sanity_check_sbox(cipher_state->sibx)) return 0;
@@ -69,17 +71,17 @@ void devon_cipher_enc(struct devon_cipher_state * const cipher_state, void * con
     devon_hash_all_4(encasement_block64, temp_block_id64, cipher_state->hash_block64, temp_block_id64[0] % 24, cipher_state->hash_keys);
     block_index_shuffle(encasement_block64, round_shuffle);
 
-    xor_blocks(block32, encasement_block64);
+    xor_blocks(block32, encasement_block64, 32);
 
     for (ui r=0;r<ROUNDS;r++)
     {
-        xor_blocks(block32, cipher_state->key_schedule[round_shuffle[0][r]]);
+        xor_blocks(block32, cipher_state->key_schedule[round_shuffle[0][r]], 32);
         substitute(block32, cipher_state->sbox[round_shuffle[1][r]]);
         permutate(block32, cipher_state->pbox[round_shuffle[2][r]], &encasement_block64[(r & 15) * 4]);
     }
 
-    xor_blocks(block32, cipher_state->key_schedule[ROUNDS]);
-    xor_blocks(block32, &encasement_block64[32]);
+    xor_blocks(block32, cipher_state->key_schedule[ROUNDS], 32);
+    xor_blocks(block32, &encasement_block64[32], 32);
 
     memcpy(out32, block32, 32);
 }
@@ -98,17 +100,17 @@ void devon_cipher_dec(struct devon_cipher_state * const cipher_state, void * con
     devon_hash_all_4(encasement_block64, temp_block_id64, cipher_state->hash_block64, temp_block_id64[0] % 24, cipher_state->hash_keys);
     block_index_shuffle(encasement_block64, round_shuffle);
 
-    xor_blocks(block32, &encasement_block64[32]);
-    xor_blocks(block32, cipher_state->key_schedule[ROUNDS]);
+    xor_blocks(block32, &encasement_block64[32], 32);
+    xor_blocks(block32, cipher_state->key_schedule[ROUNDS], 32);
 
     for (si r=ROUNDS-1;r>=0;r--)
     {
         permutate_inv(block32, cipher_state->pbox[round_shuffle[2][r]], &encasement_block64[(r & 15) * 4]);
         substitute(block32, cipher_state->sibx[round_shuffle[1][r]]);
-        xor_blocks(block32, cipher_state->key_schedule[round_shuffle[0][r]]);
+        xor_blocks(block32, cipher_state->key_schedule[round_shuffle[0][r]], 32);
     }
 
-    xor_blocks(block32, encasement_block64);
+    xor_blocks(block32, encasement_block64, 32);
 
     memcpy(out32, block32, 32);
 }
@@ -242,6 +244,38 @@ static void permutate_inv(u16 block32[16], const u8 pbox[32], void const * const
     memcpy(block32, pht, 32);
 }
 //----------------------------------------------------------------------------------------------------------------------
+static ui init_memhard(struct devon_cipher_state * const cipher_state, const ui mem_work)
+{
+    if (mem_work < 20 || mem_work > 60) return 0;
+
+    const u64 memory_size = 1ULL << mem_work;
+    const u64 block_count = memory_size / 64;
+
+    u8 * const map = malloc(memory_size + 64); // + 64 gives us a gutter so we can read past the end safely
+    if (!map) return 0;
+
+    // Fill memory
+    u64 select;
+    memcpy(&select, cipher_state->cntr_block64, 8);
+    devon_hash(map, cipher_state->hash_block64, cipher_state->cntr_block64, select % DEVON_HASH_COUNT, cipher_state->hash_keys);
+    for (u64 i=1;i<block_count+1;i++)
+    {
+        devon_hash(&map[i * 64], &map[(i - 1) * 64], cipher_state->hash_block64, (select + i) % DEVON_HASH_COUNT, cipher_state->hash_keys);
+    }
+
+    // Hash the tail end of memory into the new hash block
+    devon_hash(cipher_state->hash_block64, &map[memory_size], cipher_state->hash_block64, (select + 69420) % DEVON_HASH_COUNT, cipher_state->hash_keys);
+
+    // Set up the remaining variables used to generate random words
+    cipher_state->mem_hard.mask_index = (memory_size / 8) - 1;
+    cipher_state->mem_hard.mask_map   = memory_size - 1;
+    cipher_state->mem_hard.i = 0;
+    cipher_state->mem_hard.p = 0;
+    cipher_state->mem_hard.map = map;
+
+    return 1;
+}
+//----------------------------------------------------------------------------------------------------------------------
 static void init_sboxes(struct devon_cipher_state * const cipher_state)
 {
     for (ui i=0;i<65536;i++)
@@ -315,7 +349,7 @@ static void init_pboxes(struct devon_cipher_state * const cipher_state)
     }
 }
 //----------------------------------------------------------------------------------------------------------------------
-static void init_key_schedule(struct devon_cipher_state * const cipher_state, const u8 master_key128[128], const u8 iv128[128])
+static void init_key_schedule(struct devon_cipher_state * const cipher_state, const u8 master_key128[128], const u8 iv128[128], const u64 cpu_work)
 {
     u8 key_iv[256];
     memcpy(&key_iv[  0], master_key128, 128);
@@ -347,8 +381,7 @@ static void init_key_schedule(struct devon_cipher_state * const cipher_state, co
         }
     }
 
-    // Mix the entire key schedule from above with XOR'd rng words 69,420 times
-    for (ui r=0;r<69420;r++)
+    for (ui r=0;r<cpu_work;r++)
     {
         for (ui k=0;k<key_blocks;k++)
         {
@@ -364,9 +397,9 @@ static void init_key_schedule(struct devon_cipher_state * const cipher_state, co
     }
 }
 //----------------------------------------------------------------------------------------------------------------------
-static void xor_blocks(void * const restrict out32, void const * const restrict in32)
+static void xor_blocks(void * const restrict out32, void const * const restrict in32, const ui length)
 {
-    for (ui i=0;i<32;i++)
+    for (ui i=0;i<length;i++)
     {
         u8       * const restrict po = out32;
         u8 const * const restrict pi = in32;
@@ -475,14 +508,25 @@ static u16 rng(struct devon_cipher_state * const cipher_state, const u16 n)
 //----------------------------------------------------------------------------------------------------------------------
 static u16 rng_word(struct devon_cipher_state * const cipher_state)
 {
-    if (cipher_state->p >= 32)
+    if (cipher_state->mem_hard.p >= 32)
     {
-        cipher_state->p = 0;
-        cipher_state->select++;
-        devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, cipher_state->cntr_block64, cipher_state->select % 24, cipher_state->hash_keys);
+        cipher_state->mem_hard.p = 0;
+
+        const u64 index_xor = cipher_state->mem_hard.i & 7;
+        const u64 index_map = cipher_state->mem_hard.i & cipher_state->mem_hard.mask_index;
+        cipher_state->mem_hard.i++;
+
+        u8 * const xor = (u8 * const)cipher_state->hash_block64;
+        u64 xor_q, map_q;
+        memcpy(&xor_q, &xor[index_xor * 8], 8);
+        memcpy(&map_q, &cipher_state->mem_hard.map[index_map * 8], 8);
+
+        const u64 rng = (xor_q ^ map_q) & cipher_state->mem_hard.mask_map;
+
+        xor_blocks(xor, &cipher_state->mem_hard.map[rng], 64);
     }
 
-    return cipher_state->hash_block64[cipher_state->p++];
+    return cipher_state->hash_block64[cipher_state->mem_hard.p++];
 }
 //----------------------------------------------------------------------------------------------------------------------
 static ui sanity_check_sbox(u16 sbox[ROUNDS][65536])

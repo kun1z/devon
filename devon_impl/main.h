@@ -13,8 +13,9 @@
 static_assert(!(CHUNK_SIZE & 31), "This code requires [CHUNK_SIZE] to be a multiple of 32.");
 static_assert(sizeof(off_t) >= 8, "This code requires [off_t] to be at least 8 bytes.");
 static_assert(sizeof(size_t) >= 8, "This code requires [size_t] to be at least 8 bytes.");
+static_assert(sizeof(double) == 8, "This code requires [double] to be exactly 8 bytes.");
 //----------------------------------------------------------------------------------------------------------------------
-void encrypt_file(s8 const * const, s8 const * const, s8 const * const);
+void encrypt_file(s8 const * const, s8 const * const, s8 const * const, const double, const ui);
 void decrypt_file(s8 const * const, s8 const * const, s8 const * const);
 u32 tick(void);
 //----------------------------------------------------------------------------------------------------------------------

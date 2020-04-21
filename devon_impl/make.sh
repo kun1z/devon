@@ -8,6 +8,7 @@ declare -r HASHFILES="${HASH}devon_hash.c ${HASH}blake2bmod2.c ${HASH}sha2-512mo
 declare -r CIPHFILES="${CIPH}devon_cipher.c"
 
 clang \
+-D "dbgv(x)=printf(#x\"=%lld\n\",(long long)x);" \
 -I ${HASH} -I ${CIPH} \
 ${HASHFILES} \
 ${CIPHFILES} \
