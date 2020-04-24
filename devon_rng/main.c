@@ -26,7 +26,7 @@ si main(si argc, s8 **argv)
     struct devon_cipher_state * const cipher_state = malloc(sizeof(struct devon_cipher_state));
     memcpy(master_key, &seed1, sizeof(seed1));
     memcpy(        iv, &seed2, sizeof(seed2));
-    init_devon_cipher(cipher_state, master_key, iv, &hash_keys);
+    init_devon_cipher(cipher_state, master_key, iv, &hash_keys, 1.0, 20);
 
     u128 counter = 0;
 

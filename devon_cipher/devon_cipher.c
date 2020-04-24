@@ -2,8 +2,8 @@
 #include <string.h>
 #include "devon_cipher.h"
 //----------------------------------------------------------------------------------------------------------------------
-#define swap(a, b) do { const typeof(a) t = (a); (a) = (b); (b) = t; } while (0)
-#define min(a, b) ({ const typeof(a) _a = (a); const typeof(b) _b = (b); _a < _b ? _a : _b; })
+#define swap(a, b) do { const ui t = (a); (a) = (b); (b) = t; } while (0)
+#define min(a, b) ({ const u64 _a = (a); const u64 _b = (b); _a < _b ? _a : _b; })
 #define popui(a) __builtin_popcount(a)
 //----------------------------------------------------------------------------------------------------------------------
 static void sbox_shuffle(struct devon_cipher_state * const, u16 [65536]);
