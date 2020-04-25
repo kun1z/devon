@@ -5,6 +5,7 @@ si main(si argc, s8 **argv)
     // Initialize from command line params
     if (argc != 5 && argc != 7)
     {
+        print_error:
         printf("\n    Usage: %s <mode> <cpu bias> <memory> <key file (1,304 bytes)> <input> <output>\n\n", argv[0]);
         printf("     Mode: 0 to encrypt, 1 to decrypt\n");
         printf(" CPU Bias: 0.1 to 1000.0\n");
@@ -142,7 +143,7 @@ si main(si argc, s8 **argv)
     // If anything failed from above bail out.
     if (err)
     {
-        exit(EXIT_FAILURE);
+        goto print_error;
     }
 
     // Encrypt or Decrypt a file

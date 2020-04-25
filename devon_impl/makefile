@@ -9,14 +9,16 @@ CC := clang
 
 # Note: Some people use CFLAGS for everything, but technically these are for the preprocessor
 CPPFLAGS += -D "dbgv(x)=printf(\#x\"=%lld\n\",(long long)x);"
+CPPFLAGS += -D _POSIX_C_SOURCE=200809L
+CPPFLAGS += -D _FILE_OFFSET_BITS=64
 CPPFLAGS += -I ${HASH} -I ${CIPH}
 # Note: Here's the magic for telling the compiler to generate the .d dependency files
 CPPFLAGS += -MP -MMD
 
 CFLAGS += -std=c18 -Wall -Werror -Wfatal-errors -O3 -fomit-frame-pointer -march=native -mtune=native
 
-# And here's the key.  This will link devon_rng using all the object files, which will be compiled from all the C files of the same name.
-devon_rng.exe : main.o $(HASHFILES:.c=.o) $(CIPHFILES:.c=.o)
+# And here's the key.  This will link devon_impl using all the object files, which will be compiled from all the C files of the same name.
+devon_impl.exe : main.o $(HASHFILES:.c=.o) $(CIPHFILES:.c=.o)
 	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 # Note: more magic to use the .d files generated last time make was run
@@ -24,4 +26,4 @@ devon_rng.exe : main.o $(HASHFILES:.c=.o) $(CIPHFILES:.c=.o)
 
 .PHONY: clean
 clean:
-	rm $(HASH)/*.o $(CIPH)/*.o *.o $(HASH)/*.d $(CIPH)/*.d *.d devon_rng.exe
+	rm $(HASH)/*.o $(CIPH)/*.o *.o $(HASH)/*.d $(CIPH)/*.d *.d devon_impl.exe
