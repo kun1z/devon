@@ -26,15 +26,14 @@ si main(si argc, s8 **argv)
     struct devon_cipher_state * const cipher_state = malloc(sizeof(struct devon_cipher_state));
     memcpy(master_key, &seed1, sizeof(seed1));
     memcpy(        iv, &seed2, sizeof(seed2));
-    init_devon_cipher(cipher_state, master_key, iv, &hash_keys, 1.0, 20);
+    init_devon_cipher(cipher_state, master_key, iv, &hash_keys, 1.0, 24);
 
-    u128 counter = 0;
+    u64 counter = 0;
+    u8 buffer[32] = { 0 };
 
     while(1)
     {
-        const u8 read_block[32] = { 0 };
-        u8 buffer[32];
-        devon_cipher_enc(cipher_state, buffer, read_block, counter++);
+        devon_cipher_enc(cipher_state, buffer, buffer, counter++);
         fwrite(buffer, 1, 32, stdout);
     }
 
