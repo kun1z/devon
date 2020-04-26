@@ -147,24 +147,21 @@ si main(si argc, s8 **argv)
     }
 
     // Encrypt or Decrypt a file
-    u32 time;
+    const u32 start_tick = tick();
 
     if (*mode == '0')
     {
         printf("Encrypting...\n");
-        const u32 start_tick = tick();
         encrypt_file(keyfile, infile, outfile, cpu_bias, mem_hard);
-        time = tick() - start_tick;
     }
     else
     {
         printf("Decrypting...\n");
-        const u32 start_tick = tick();
         decrypt_file(keyfile, infile, outfile);
-        time = tick() - start_tick;
     }
 
     // Print some time stats
+    const u32 time = tick() - start_tick;
     s8 const * const tstr[3] = { "hours", "seconds", "minutes" };
     const double tdbl[3] = { 3600000, 1000, 60000 };
     ui s = 0;

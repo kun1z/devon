@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "devon_cipher.h"
@@ -27,14 +28,19 @@ static ui sanity_check_pbox(u8 [ROUNDS][32]);
 //----------------------------------------------------------------------------------------------------------------------
 ui init_devon_cipher(struct devon_cipher_state * const cipher_state, const u8 iv128[128], const u8 master_key128[128], struct devon_hash_keys const * const hash_keys, const double cpu_bias, const ui mem_work)
 {
-    u64 select1, select2;
-    memcpy(&select1, &master_key128[0], 8);
-    memcpy(&select2, &master_key128[8], 8);
+    u64 keyed_select = 0;
+
+    for (ui i=0;i<16;i++)
+    {
+        u64 temp;
+        memcpy(&temp, &master_key128[i * 8], 8);
+        keyed_select ^= temp;
+    }
 
     cipher_state->hash_keys = hash_keys;
 
-    devon_hash_all_4(cipher_state->cntr_block64, &master_key128[ 0], &iv128[ 0], select1 % 24, hash_keys);
-    devon_hash_all_4(cipher_state->hash_block64, &master_key128[64], &iv128[64], select2 % 24, hash_keys);
+    devon_hash_all_4(cipher_state->cntr_block64, &master_key128[ 0], &iv128[ 0], keyed_select % 24, hash_keys);
+    devon_hash_all_4(cipher_state->hash_block64, &master_key128[64], &iv128[64], keyed_select % 24, hash_keys);
 
     const u64 cpu_work = ((1ULL << mem_work) / 16) * cpu_bias;
 
@@ -254,17 +260,23 @@ static ui init_memhard(struct devon_cipher_state * const cipher_state, const ui 
     u8 * const map = malloc(memory_size + 64); // + 64 gives us a gutter so we can read past the end safely
     if (!map) return 0;
 
+    u64 keyed_select = 0;
+    for (ui i=0;i<8;i++)
+    {
+        u64 temp;
+        memcpy(&temp, &cipher_state->cntr_block64[i * 8], 8);
+        keyed_select ^= temp;
+    }
+
     // Fill memory
-    u64 select;
-    memcpy(&select, cipher_state->cntr_block64, 8);
-    devon_hash(map, cipher_state->hash_block64, cipher_state->cntr_block64, select % DEVON_HASH_COUNT, cipher_state->hash_keys);
+    devon_hash(map, cipher_state->hash_block64, cipher_state->cntr_block64, keyed_select % DEVON_HASH_COUNT, cipher_state->hash_keys);
     for (u64 i=1;i<block_count+1;i++)
     {
-        devon_hash(&map[i * 64], &map[(i - 1) * 64], cipher_state->hash_block64, (select + i) % DEVON_HASH_COUNT, cipher_state->hash_keys);
+        devon_hash(&map[i * 64], &map[(i - 1) * 64], cipher_state->hash_block64, (keyed_select + i) % DEVON_HASH_COUNT, cipher_state->hash_keys);
     }
 
     // Hash the tail end of memory into the new hash block
-    devon_hash(cipher_state->hash_block64, &map[memory_size], cipher_state->hash_block64, (select + 69420) % DEVON_HASH_COUNT, cipher_state->hash_keys);
+    devon_hash(cipher_state->hash_block64, &map[memory_size], cipher_state->hash_block64, keyed_select % DEVON_HASH_COUNT, cipher_state->hash_keys);
 
     // Set up the remaining variables used to generate random words
     cipher_state->mem_hard.mask_index = (memory_size / 8) - 1;
@@ -524,6 +536,11 @@ static u16 rng_word(struct devon_cipher_state * const cipher_state)
         const u64 rng = (xor_q ^ map_q) & cipher_state->mem_hard.mask_map;
 
         xor_blocks(xor, &cipher_state->mem_hard.map[rng], 64);
+
+        if (!(cipher_state->mem_hard.i & 1023))
+        {
+            devon_hash_all_4(cipher_state->hash_block64, cipher_state->hash_block64, cipher_state->cntr_block64, map_q % 24, cipher_state->hash_keys);
+        }
     }
 
     return cipher_state->hash_block64[cipher_state->mem_hard.p++];
