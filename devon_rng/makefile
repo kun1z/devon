@@ -13,7 +13,7 @@ CPPFLAGS += -I ${HASH} -I ${CIPH}
 # Note: Here's the magic for telling the compiler to generate the .d dependency files
 CPPFLAGS += -MP -MMD
 
-CFLAGS += -std=c18 -Wall -Werror -Wfatal-errors -O3 -fomit-frame-pointer -march=native -mtune=native
+CFLAGS += -pthread -std=c18 -Wall -Werror -Wfatal-errors -O3 -fomit-frame-pointer -march=native -mtune=native
 
 # And here's the key.  This will link devon_rng using all the object files, which will be compiled from all the C files of the same name.
 devon_rng.exe : main.o $(HASHFILES:.c=.o) $(CIPHFILES:.c=.o)
