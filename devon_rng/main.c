@@ -89,7 +89,7 @@ si main(si argc, s8 **argv)
             }
         }
 
-        fwrite(buffer, 1, CHUNK_SIZE * threads, stdout);
+        //fwrite(buffer, 1, CHUNK_SIZE * threads, stdout);
     }
 
     __builtin_unreachable();

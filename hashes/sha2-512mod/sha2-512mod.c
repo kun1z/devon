@@ -70,7 +70,7 @@ void sha2_512mod(void * const out, void const * const in)
 
     for (int i=0;i<8;i++)
     {
-        unsigned char * const restrict p = out64;
+        unsigned char * const restrict p = out;
         const uint64_t output = IV[i] + S[i];
         memcpy(&p[i * 8], &output, 8);
     }

@@ -5,7 +5,7 @@ CIPH := ../devon_cipher
 HASHFILES := $(wildcard $(HASH)/*.c)
 CIPHFILES := $(wildcard $(CIPH)/*.c)
 
-CC := clang
+CC := @clang
 
 # Note: Some people use CFLAGS for everything, but technically these are for the preprocessor
 CPPFLAGS += -D "dbgv(x)=printf(\#x\"=%lld\n\",(long long)x);"
@@ -19,11 +19,11 @@ CFLAGS += -std=c18 -Wall -Werror -Wfatal-errors -O3 -fomit-frame-pointer -march=
 
 # And here's the key.  This will link devon_impl using all the object files, which will be compiled from all the C files of the same name.
 devon_impl.exe : main.o $(HASHFILES:.c=.o) $(CIPHFILES:.c=.o)
-	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
+	@$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 # Note: more magic to use the .d files generated last time make was run
 -include main.d $(HASHFILES:.c=.d) $(CIPHFILES:.c=.d)
 
 .PHONY: clean
 clean:
-	rm $(HASH)/*.o $(CIPH)/*.o *.o $(HASH)/*.d $(CIPH)/*.d *.d devon_impl.exe
+	@rm $(HASH)/*.o $(CIPH)/*.o *.o $(HASH)/*.d $(CIPH)/*.d *.d devon_impl.exe

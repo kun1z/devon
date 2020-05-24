@@ -61,7 +61,7 @@ void blake2b_mod(void * const out, void const * const in)
 
     for (int i=0;i<8;i++)
     {
-        unsigned char * const restrict p = out64;
+        unsigned char * const restrict p = out;
         const uint64_t output = IV[i] ^ v[i] ^ v[i + 8];
         memcpy(&p[i * 8], &output, 8);
     }

@@ -615,7 +615,7 @@ void whirlpool_mod(void * const out, void const * const in)
 
     for (int i=0;i<8;i++)
     {
-        unsigned char * const restrict p = out64;
+        unsigned char * const restrict p = out;
         const uint64_t out_q = hash[i] ^ state[0][i];
         memcpy(&p[i * 8], &out_q, 8);
     }
